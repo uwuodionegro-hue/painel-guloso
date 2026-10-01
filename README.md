@@ -1,2 +1,861 @@
-# painel-guloso
-67 resenha
+#!/data/data/com.termux/files/usr/bin/bash
+# ================================================================
+# Painel V3 by @neuroseempessoa - TERMUX EDITION
+# ================================================================
+
+set -o pipefail
+
+# ===== CORES =====
+RED=$'\033[1;31m'
+WHITE=$'\033[1;37m'
+DIM=$'\033[2;37m'
+NC=$'\033[0m'
+
+# ===== CONFIGURAÇÕES =====
+BASE_URL="http://apisbrasilpro.site"
+CPFHUB_KEY="52cc698f2f81a2abba1f9d3aa1fcdae62cf08c3ad3329a5fa0859e088968ecdc"
+TIMEOUT=120
+TIMEOUT_GLOBAL=90
+
+# ===== AUXILIARES =====
+only_numbers() { printf '%s' "$1" | tr -d -c '0-9'; }
+
+normalizar_nome() {
+    local n="$1"
+    n=$(printf '%s' "$n" | tr '[:lower:]' '[:upper:]')
+    n=$(printf '%s' "$n" | sed 'y/ÁÀÂÃÄÅáàâãäå/AAAAAAaaaaaa/; y/ÉÈÊËéèêë/EEEEeeee/; y/ÍÌÎÏíìîï/IIIIiiii/; y/ÓÒÔÕÖóòôõö/OOOOOooooo/; y/ÚÙÛÜúùûü/UUUUuuuu/; y/Çç/Cc/')
+    printf '%s' "$n" | sed 's/[^A-Z0-9 ]//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//'
+}
+
+urlencode() {
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$1" | jq -sRr @uri 2>/dev/null
+    else
+        printf '%s' "$1" | sed 's/ /%20/g'
+    fi
+}
+
+limpar_resposta() {
+    printf '%s' "$1" \
+        | sed 's/api desenvolvida por @astrahvhdev telegram//gi' \
+        | sed 's/@astrahvhdev telegram//gi' \
+        | sed 's/^[[:space:]]*//'
+}
+
+# ===== CASCATA =====
+cascata_linha() {
+    local texto="$1"
+    local delay="${2:-0.005}"
+    local i=0
+    local len=${#texto}
+    while [ $i -lt $len ]; do
+        printf '%s' "${texto:$i:1}"
+        sleep "$delay"
+        i=$((i+1))
+    done
+}
+
+cascata_multi() {
+    local texto="$1"
+    local delay="${2:-0.008}"
+    while IFS= read -r linha; do
+        cascata_linha "$linha" "$delay"
+        printf "\n"
+    done <<< "$texto"
+}
+
+# ===== ABRIR URL NO ANDROID =====
+abrir_url() {
+    if command -v termux-open-url >/dev/null 2>&1; then
+        termux-open-url "$1" 2>/dev/null
+    else
+        printf "${WHITE}[!] Instale: pkg install termux-api${NC}\n"
+    fi
+}
+
+check_deps() {
+    command -v curl >/dev/null 2>&1 || { printf "${RED}[!] Instale: pkg install curl${NC}\n"; exit 1; }
+    command -v jq   >/dev/null 2>&1 || { printf "${RED}[!] Instale: pkg install jq${NC}\n"; exit 1; }
+}
+
+# ===== EXIBICAO =====
+exibir_organizado() {
+    local json="$1" desc="$2"
+
+    printf "\n"
+    cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.003
+    printf "\n"
+    cascata_linha "${WHITE}----------------------------------------${NC}" 0.001
+    printf "\n"
+    cascata_linha "${WHITE}${desc}${NC}" 0.005
+    printf "\n"
+    cascata_linha "${WHITE}----------------------------------------${NC}" 0.001
+    printf "\n"
+
+    local tipo
+    tipo=$(printf '%s' "$json" | jq -r '
+        if has("dados") and (.dados | type == "array") and (.dados | length > 0) and (.dados[0] | has("conteudo"))
+        then "wrapper" else "normal" end
+    ' 2>/dev/null)
+
+    if [ "$tipo" = "wrapper" ]; then
+        local total i=0 mostrados=0
+        total=$(printf '%s' "$json" | jq '.dados | length')
+        while [ $i -lt "$total" ]; do
+            local sub
+            sub=$(printf '%s' "$json" | jq -r ".dados[$i].conteudo // empty" 2>/dev/null)
+            if printf '%s' "$sub" | jq -e '.' >/dev/null 2>&1; then
+                local sub_tem
+                sub_tem=$(printf '%s' "$sub" | jq -r '
+                    if type == "object" then
+                        if has("dados") then (.dados | if type=="array" then (if length>0 then "sim" else "nao" end) else "sim" end)
+                        elif has("resultado") then (if (.resultado | type) == "object" and (.resultado | length) > 0 then "sim" else "nao" end)
+                        elif has("resultados") then (.resultados | if length>0 then "sim" else "nao" end)
+                        elif has("results") then (.results | if length>0 then "sim" else "nao" end)
+                        elif (.sucesso == false or .success == false) then "nao"
+                        elif (.erro == true) then "nao"
+                        elif (.status == 404) then "nao"
+                        else "sim" end
+                    elif type == "array" then
+                        (if length > 0 then "sim" else "nao" end)
+                    else "nao" end
+                ' 2>/dev/null)
+                if [ "$sub_tem" = "sim" ]; then
+                    mostrados=$((mostrados+1))
+                    printf "\n${WHITE}--- Fonte %d ---${NC}\n" "$mostrados"
+                    local pretty
+                    pretty=$(printf '%s' "$sub" | jq '.')
+                    cascata_multi "$pretty" 0.003
+                    printf "\n"
+                fi
+            fi
+            i=$((i+1))
+        done
+        [ $mostrados -eq 0 ] && cascata_linha "${WHITE}(nenhuma fonte retornou dados)${NC}" 0.003
+    else
+        local pretty
+        pretty=$(printf '%s' "$json" | jq '.' 2>/dev/null || printf '%s' "$json")
+        cascata_multi "$pretty" 0.004
+    fi
+
+    cascata_linha "${WHITE}----------------------------------------${NC}" 0.001
+    printf "\n\n"
+}
+
+cab() {
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  %s${NC}\n" "$1"
+    printf "${WHITE}=========================================${NC}\n\n"
+}
+
+# ===== APIs BRASIL PRO =====
+consultar() {
+    local endpoint="$1" param="$2" valor="$3" desc="$4"
+    if [[ "$param" == "nome" || "$param" == "nome_mae" || "$param" == "mae" || "$param" == "pai" ]]; then
+        valor=$(normalizar_nome "$valor")
+    fi
+    local url
+    if [[ "$endpoint" == "credauto_bin.php" || "$endpoint" == "credauto_emplacamento.php" ]]; then
+        url="${BASE_URL}/${endpoint}?campo=${param}&valor=$(urlencode "$valor")"
+    elif [[ "$endpoint" == "api_cad_claro_nex.php" ]]; then
+        url="${BASE_URL}/${endpoint}?tabela=${param}&${param}=$(urlencode "$valor")"
+    elif [[ "$endpoint" == "dados01.php" ]]; then
+        url="${BASE_URL}/${endpoint}?action=consultar_${param}&${param}=$(urlencode "$valor")"
+    else
+        url="${BASE_URL}/${endpoint}?${param}=$(urlencode "$valor")"
+    fi
+
+    printf "\n${WHITE}Consultando...${NC}\n"
+
+    local response
+    response=$(curl -s --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+        -H "User-Agent: Mozilla/5.0 (Linux; Android 10)" "$url" 2>/dev/null)
+    [ -z "$response" ] && { printf "${RED}[!] Resposta vazia${NC}\n"; return 1; }
+    local clean
+    clean=$(limpar_resposta "$response")
+    if printf '%s' "$clean" | jq . >/dev/null 2>&1; then
+        exibir_organizado "$clean" "$desc"
+    else
+        printf "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}\n"
+        printf "${WHITE}----------------------------------------${NC}\n"
+        printf "${WHITE}%s${NC}\n" "$desc"
+        printf "${WHITE}----------------------------------------${NC}\n"
+        printf '%s\n' "$clean" | head -30
+        printf "${WHITE}----------------------------------------${NC}\n\n"
+    fi
+}
+
+consultar_dual() {
+    local endpoint="$1" p1="$2" v1="$3" p2="$4" v2="$5" desc="$6"
+    local url="${BASE_URL}/${endpoint}?${p1}=$(urlencode "$v1")&${p2}=$(urlencode "$v2")"
+    printf "\n${WHITE}Consultando...${NC}\n"
+
+    local response
+    response=$(curl -s --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+        -H "User-Agent: Mozilla/5.0 (Linux; Android 10)" "$url" 2>/dev/null)
+    local clean; clean=$(limpar_resposta "$response")
+    if printf '%s' "$clean" | jq . >/dev/null 2>&1; then
+        exibir_organizado "$clean" "$desc"
+    else
+        printf "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}\n"
+        printf "${WHITE}----------------------------------------${NC}\n"
+        printf "${WHITE}%s${NC}\n" "$desc"
+        printf "${WHITE}----------------------------------------${NC}\n"
+        printf '%s\n' "$clean" | head -30
+        printf "${WHITE}----------------------------------------${NC}\n\n"
+    fi
+}
+
+# ===== CPFHUB.IO =====
+cpfhub_consultar() {
+    local cpf; cpf=$(printf '%s' "$1" | tr -d -c '0-9')
+    [ ${#cpf} -ne 11 ] && { printf "${RED}[!] CPF deve ter 11 digitos${NC}\n"; return 1; }
+    local url="https://api.cpfhub.io/cpf/${cpf}"
+    printf "\n${WHITE}Consultando CPF...${NC}\n"
+    local response
+    response=$(curl -s --max-time 30 -H "x-api-key: ${CPFHUB_KEY}" -H "Accept: application/json" "$url" 2>/dev/null)
+    if printf '%s' "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        exibir_organizado "$response" "Consulta CPF - $cpf"
+    else
+        printf "${RED}[!] %s${NC}\n" "$(printf '%s' "$response" | jq -r '.message // .error // "Erro"' 2>/dev/null)"
+    fi
+}
+
+menu_cpfhub() {
+    cab "CONSULTA CPF"
+    echo " 1) Consultar CPF"
+    echo " 2) Consultar varios CPFs"
+    echo " 0) Voltar"
+    echo ""
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; cpfhub_consultar "$v";;
+        2) echo "Digite um CPF por linha. Vazio pra sair."
+           while IFS= read -rp "CPF: " v; do
+               [ -z "$v" ] && break
+               cpfhub_consultar "$v"; sleep 2
+           done;;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+# ===== BRASILAPI - CNPJ =====
+menu_brasilapi() {
+    cab "CONSULTA CNPJ"
+    read -rp "CNPJ (so numeros): " cnpj
+    cnpj=$(printf '%s' "$cnpj" | tr -d -c '0-9')
+    printf "\n${WHITE}Consultando CNPJ...${NC}\n"
+    local response
+    response=$(curl -s --max-time 30 "https://brasilapi.com.br/api/cnpj/v1/${cnpj}" 2>/dev/null)
+    if printf '%s' "$response" | jq . >/dev/null 2>&1; then
+        exibir_organizado "$response" "Consulta CNPJ - $cnpj"
+    else
+        printf "${RED}[!] Erro na consulta${NC}\n"
+    fi
+    read -rp "Pressione ENTER..."
+}
+
+# ===== RECEITA FEDERAL =====
+menu_receita_cpf() {
+    cab "RECEITA FEDERAL - CPF"
+    echo "Para consultar, voce precisa:"
+    echo "  - CPF"
+    echo "  - Data de nascimento"
+    echo "  - Resolver captcha"
+    echo ""
+    read -rp "Abrir no navegador? (s/n): " r
+    [ "$r" = "s" ] && abrir_url "https://servicos.receita.fazenda.gov.br/servicos/cpf/consultasituacao/consultapublica.asp"
+    read -rp "Pressione ENTER..."
+}
+
+# ================================================================
+# CONSULTA MULTIPLA
+# ================================================================
+consulta_multipla_cpf() {
+    local cpf; cpf=$(printf '%s' "$1" | tr -d -c '0-9')
+    [ ${#cpf} -ne 11 ] && { printf "${RED}[!] CPF deve ter 11 digitos${NC}\n"; return 1; }
+
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  CONSULTA MULTIPLA - CPF %s${NC}\n" "$cpf"
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}Rodando consultas em paralelo...${NC}\n\n"
+
+    local tmpdir; tmpdir=$(mktemp -d)
+    local T=60 pids=() total=12
+
+    ( curl -s --max-time $T -H "x-api-key: ${CPFHUB_KEY}" "https://api.cpfhub.io/cpf/${cpf}" > "$tmpdir/cpfhub.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/consulta_serasa.php?cpf=${cpf}" > "$tmpdir/serasa.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/spc2.php?cpf=${cpf}" > "$tmpdir/spc2.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/telefone0.php?cpf=${cpf}" > "$tmpdir/tel0.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/telefone1.php?cpf=${cpf}" > "$tmpdir/tel1.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/dados01.php?action=consultar_cpf&cpf=${cpf}" > "$tmpdir/dados01.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/basic220m.php?cpf=${cpf}" > "$tmpdir/basic220m.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/brazilianpeople.php?cpf=${cpf}" > "$tmpdir/brazilian.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/rais2019.php?cpf=${cpf}" > "$tmpdir/rais.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/situacao.php?cpf=${cpf}" > "$tmpdir/situacao.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/api_full.php?cpf=${cpf}" > "$tmpdir/apifull.json" 2>/dev/null ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/credilink.php?cpf=${cpf}" > "$tmpdir/credi.json" 2>/dev/null ) & pids+=($!)
+
+    local esperado=0
+    while [ $esperado -lt $TIMEOUT_GLOBAL ]; do
+        local ainda=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && ainda=$((ainda+1)); done
+        [ $ainda -eq 0 ] && break
+        [ $((esperado % 3)) -eq 0 ] && printf "\r${WHITE}Aguardando... (%d/%d)${NC}  " $((total - ainda)) "$total"
+        sleep 1
+        esperado=$((esperado+1))
+    done
+    printf "\r${WHITE}Todas finalizadas!${NC}                              \n"
+    for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  RESULTADO DA CONSULTA MULTIPLA${NC}\n"
+    printf "${WHITE}  CPF: %s${NC}\n" "$cpf"
+    printf "${WHITE}=========================================${NC}\n"
+
+    local bloco
+    for bloco in cpfhub:CPFHUB serasa:SERASA dados01:DADOS_01 spc2:SPC_2 situacao:SITUACAO_CADASTRAL basic220m:BASIC_220M tel0:TELEFONE_0 tel1:TELEFONE_1 credi:CREDILINK brazilian:BRAZILIAN_PEOPLE rais:RAIS_2019 apifull:API_FULL; do
+        local arq="${bloco%%:*}" nome="${bloco##*:}"
+        local caminho="$tmpdir/${arq}.json"
+        [ -s "$caminho" ] || continue
+        local c; c=$(limpar_resposta "$(cat "$caminho")")
+        printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
+        printf "\n"
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_linha "${WHITE}${nome}${NC}" 0.003
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_multi "$(printf '%s' "$c" | jq '.')" 0.003
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+    done
+
+    printf "\n${WHITE}=========================================${NC}\n"
+    cascata_linha "${WHITE}Consulta multipla finalizada${NC}" 0.003
+    printf "\n"
+    cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.003
+    printf "\n"
+
+    local relatorio="$HOME/consulta_multipla_${cpf}_$(date +%Y%m%d_%H%M%S).txt"
+    {
+        echo "=== CONSULTA MULTIPLA - CPF $cpf ==="
+        echo "Data: $(date)"
+        echo ""
+        for f in cpfhub serasa dados01 spc2 situacao basic220m tel0 tel1 credi brazilian rais apifull; do
+            [ -s "$tmpdir/$f.json" ] || continue
+            echo "=== $f ==="
+            limpar_resposta "$(cat "$tmpdir/$f.json")" | jq '.' 2>/dev/null
+            echo ""
+        done
+    } > "$relatorio" 2>/dev/null
+    printf "${WHITE}Relatorio salvo: %s${NC}\n\n" "$relatorio"
+    rm -rf "$tmpdir"
+}
+
+consulta_multipla_nome() {
+    local nome; nome=$(normalizar_nome "$1")
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  CONSULTA MULTIPLA - NOME${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+    local tmpdir; tmpdir=$(mktemp -d)
+    local T=60 pids=()
+
+    ( curl -s --max-time $T "${BASE_URL}/consulta_serasa.php?nome=$(urlencode "$nome")" > "$tmpdir/serasa.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/spc1.php?nome=$(urlencode "$nome")" > "$tmpdir/spc1.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/spc2.php?nome=$(urlencode "$nome")" > "$tmpdir/spc2.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/telefone1.php?nome=$(urlencode "$nome")" > "$tmpdir/tel1.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/credilink.php?nome=$(urlencode "$nome")" > "$tmpdir/credi.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/dados01.php?action=buscar_nome&nome=$(urlencode "$nome")" > "$tmpdir/dados01.json" ) & pids+=($!)
+
+    local esperado=0
+    while [ $esperado -lt $TIMEOUT_GLOBAL ]; do
+        local ainda=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && ainda=$((ainda+1)); done
+        [ $ainda -eq 0 ] && break
+        sleep 1
+        esperado=$((esperado+1))
+    done
+    for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  RESULTADO - NOME${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+
+    local bloco
+    for bloco in serasa:SERASA dados01:DADOS_01 spc1:SPC_1 spc2:SPC_2 tel1:TELEFONE_1 credi:CREDILINK; do
+        local arq="${bloco%%:*}" nome_b="${bloco##*:}"
+        local caminho="$tmpdir/${arq}.json"
+        [ -s "$caminho" ] || continue
+        local c; c=$(limpar_resposta "$(cat "$caminho")")
+        printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
+        printf "\n"
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_linha "${WHITE}${nome_b}${NC}" 0.003
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_multi "$(printf '%s' "$c" | jq '.')" 0.003
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+    done
+    rm -rf "$tmpdir"
+}
+
+consulta_multipla_telefone() {
+    local tel="$1"
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  CONSULTA MULTIPLA - TELEFONE${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+    local tmpdir; tmpdir=$(mktemp -d)
+    local T=60 pids=()
+
+    ( curl -s --max-time $T "${BASE_URL}/consulta_serasa.php?telefone=${tel}" > "$tmpdir/serasa.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/telefone0.php?telefone=${tel}" > "$tmpdir/tel0.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/telefone1.php?telefone=${tel}" > "$tmpdir/tel1.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/spc1.php?telefone=${tel}" > "$tmpdir/spc1.json" ) & pids+=($!)
+
+    local esperado=0
+    while [ $esperado -lt $TIMEOUT_GLOBAL ]; do
+        local ainda=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && ainda=$((ainda+1)); done
+        [ $ainda -eq 0 ] && break
+        sleep 1
+        esperado=$((esperado+1))
+    done
+    for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  RESULTADO - TELEFONE${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+
+    local bloco
+    for bloco in serasa:SERASA tel0:TELEFONE_0 tel1:TELEFONE_1 spc1:SPC_1; do
+        local arq="${bloco%%:*}" nome_b="${bloco##*:}"
+        local caminho="$tmpdir/${arq}.json"
+        [ -s "$caminho" ] || continue
+        local c; c=$(limpar_resposta "$(cat "$caminho")")
+        printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
+        printf "\n"
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_linha "${WHITE}${nome_b}${NC}" 0.003
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_multi "$(printf '%s' "$c" | jq '.')" 0.003
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+    done
+    rm -rf "$tmpdir"
+}
+
+consulta_multipla_email() {
+    local email="$1"
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  CONSULTA MULTIPLA - EMAIL${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+    local tmpdir; tmpdir=$(mktemp -d)
+    local T=60 enc; enc=$(urlencode "$email")
+    local pids=()
+
+    ( curl -s --max-time $T "${BASE_URL}/consulta_serasa.php?email=${enc}" > "$tmpdir/serasa.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/spc2.php?email=${enc}" > "$tmpdir/spc2.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/credilink.php?email=${enc}" > "$tmpdir/credi.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/api_full.php?email=${enc}" > "$tmpdir/apifull.json" ) & pids+=($!)
+
+    local esperado=0
+    while [ $esperado -lt $TIMEOUT_GLOBAL ]; do
+        local ainda=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && ainda=$((ainda+1)); done
+        [ $ainda -eq 0 ] && break
+        sleep 1
+        esperado=$((esperado+1))
+    done
+    for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  RESULTADO - EMAIL${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+
+    local bloco
+    for bloco in serasa:SERASA spc2:SPC_2 credi:CREDILINK apifull:API_FULL; do
+        local arq="${bloco%%:*}" nome_b="${bloco##*:}"
+        local caminho="$tmpdir/${arq}.json"
+        [ -s "$caminho" ] || continue
+        local c; c=$(limpar_resposta "$(cat "$caminho")")
+        printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
+        printf "\n"
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_linha "${WHITE}${nome_b}${NC}" 0.003
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_multi "$(printf '%s' "$c" | jq '.')" 0.003
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+    done
+    rm -rf "$tmpdir"
+}
+
+consulta_multipla_placa() {
+    local placa="$1"
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  CONSULTA MULTIPLA - PLACA${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+    local tmpdir; tmpdir=$(mktemp -d)
+    local T=60 pids=()
+
+    ( curl -s --max-time $T "${BASE_URL}/spc2.php?placa=${placa}" > "$tmpdir/spc2.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/api_full.php?placa=${placa}" > "$tmpdir/apifull.json" ) & pids+=($!)
+    ( curl -s --max-time $T "${BASE_URL}/consulta_bv_detran.php?placa=${placa}" > "$tmpdir/detran.json" ) & pids+=($!)
+
+    local esperado=0
+    while [ $esperado -lt $TIMEOUT_GLOBAL ]; do
+        local ainda=0
+        for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null && ainda=$((ainda+1)); done
+        [ $ainda -eq 0 ] && break
+        sleep 1
+        esperado=$((esperado+1))
+    done
+    for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
+
+    clear
+    printf "${WHITE}=========================================${NC}\n"
+    printf "${WHITE}  RESULTADO - PLACA${NC}\n"
+    printf "${WHITE}=========================================${NC}\n"
+
+    local bloco
+    for bloco in spc2:SPC_2 apifull:API_FULL detran:DETRAN; do
+        local arq="${bloco%%:*}" nome_b="${bloco##*:}"
+        local caminho="$tmpdir/${arq}.json"
+        [ -s "$caminho" ] || continue
+        local c; c=$(limpar_resposta "$(cat "$caminho")")
+        printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
+        printf "\n"
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_linha "${WHITE}${nome_b}${NC}" 0.003
+        printf "\n"
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+        cascata_multi "$(printf '%s' "$c" | jq '.')" 0.003
+        cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
+        printf "\n"
+    done
+    rm -rf "$tmpdir"
+}
+
+menu_multipla() {
+    cab "CONSULTA MULTIPLA"
+    echo "Roda todas as APIs relacionadas de uma vez."
+    echo ""
+    echo " 1) CPF (12 APIs)"
+    echo " 2) Nome (6 APIs)"
+    echo " 3) Telefone (4 APIs)"
+    echo " 4) Email (4 APIs)"
+    echo " 5) Placa (3 APIs)"
+    echo " 0) Voltar"
+    echo ""
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consulta_multipla_cpf "$(only_numbers "$v")";;
+        2) read -rp "Nome: " v; consulta_multipla_nome "$v";;
+        3) read -rp "Telefone: " v; consulta_multipla_telefone "$(only_numbers "$v")";;
+        4) read -rp "Email: " v; consulta_multipla_email "$v";;
+        5) read -rp "Placa: " v; consulta_multipla_placa "$v";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+# ================================================================
+# MENUS APIs BRASIL PRO
+# ================================================================
+menu_serasa() {
+    cab "SERASA"
+    echo " 1) CPF      4) RG"
+    echo " 2) Telefone 5) CPF Parente"
+    echo " 3) Email    6) Nome"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar "consulta_serasa.php" "cpf" "$(only_numbers "$v")" "Serasa CPF";;
+        2) read -rp "Tel: " v; consultar "consulta_serasa.php" "telefone" "$(only_numbers "$v")" "Serasa Telefone";;
+        3) read -rp "Email: " v; consultar "consulta_serasa.php" "email" "$v" "Serasa Email";;
+        4) read -rp "RG: " v; consultar "consulta_serasa.php" "rg" "$(only_numbers "$v")" "Serasa RG";;
+        5) read -rp "CPF Parente: " v; consultar "consulta_serasa.php" "cpf_parente" "$(only_numbers "$v")" "Serasa CPF Parente";;
+        6) read -rp "Nome: " v; consultar "consulta_serasa.php" "nome" "$v" "Serasa Nome";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_spc1() {
+    cab "SPC 1"
+    echo " 1) Documento  3) Telefone"
+    echo " 2) Nome"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "Doc: " v; consultar "spc1.php" "doc" "$v" "SPC1 Documento";;
+        2) read -rp "Nome: " v; consultar "spc1.php" "nome" "$v" "SPC1 Nome";;
+        3) read -rp "Tel: " v; consultar "spc1.php" "telefone" "$v" "SPC1 Telefone";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_spc2() {
+    cab "SPC 2"
+    echo " 1) CPF      5) Placa"
+    echo " 2) Nome     6) CNPJ"
+    echo " 3) Email    7) Mae"
+    echo " 4) CEP      8) Renavam"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar "spc2.php" "cpf" "$(only_numbers "$v")" "SPC2 CPF";;
+        2) read -rp "Nome: " v; consultar "spc2.php" "nome" "$v" "SPC2 Nome";;
+        3) read -rp "Email: " v; consultar "spc2.php" "email" "$v" "SPC2 Email";;
+        4) read -rp "CEP: " v; consultar "spc2.php" "cep" "$(only_numbers "$v")" "SPC2 CEP";;
+        5) read -rp "Placa: " v; consultar "spc2.php" "placa" "$v" "SPC2 Placa";;
+        6) read -rp "CNPJ: " v; consultar "spc2.php" "cnpj" "$(only_numbers "$v")" "SPC2 CNPJ";;
+        7) read -rp "Mae: " v; consultar "spc2.php" "nome_mae" "$v" "SPC2 Nome da Mae";;
+        8) read -rp "Renavam: " v; consultar "spc2.php" "renavan" "$v" "SPC2 Renavam";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_dados() {
+    cab "DADOS 01"
+    echo " 1) CPF   4) Pai"
+    echo " 2) Nome  5) RG"
+    echo " 3) Mae"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar_dual "dados01.php" "action" "consultar_cpf" "cpf" "$(only_numbers "$v")" "Dados01 CPF";;
+        2) read -rp "Nome: " v; consultar_dual "dados01.php" "action" "buscar_nome" "nome" "$(normalizar_nome "$v")" "Dados01 Nome";;
+        3) read -rp "Mae: " v; consultar_dual "dados01.php" "action" "buscar_mae" "mae" "$(normalizar_nome "$v")" "Dados01 Mae";;
+        4) read -rp "Pai: " v; consultar_dual "dados01.php" "action" "buscar_pai" "pai" "$(normalizar_nome "$v")" "Dados01 Pai";;
+        5) read -rp "RG: " v; consultar_dual "dados01.php" "action" "buscar_rg" "rg" "$(only_numbers "$v")" "Dados01 RG";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_credito() {
+    cab "CREDITO"
+    echo " 1) Credilink CPF    6) Paycom Identity"
+    echo " 2) Credilink Nome   7) Paycom Telephone"
+    echo " 3) Credilink Email  8) Paycom2 Telefone"
+    echo " 4) Credilink Mae"
+    echo " 5) Credilink CEP"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar "credilink.php" "cpf" "$(only_numbers "$v")" "Credilink CPF";;
+        2) read -rp "Nome: " v; consultar "credilink.php" "nome" "$v" "Credilink Nome";;
+        3) read -rp "Email: " v; consultar "credilink.php" "email" "$v" "Credilink Email";;
+        4) read -rp "Mae: " v; consultar "credilink.php" "nome_mae" "$v" "Credilink Nome da Mae";;
+        5) read -rp "CEP: " v; consultar "credilink.php" "cep" "$(only_numbers "$v")" "Credilink CEP";;
+        6) read -rp "Identity: " v; consultar "compras_paycom.php" "identity" "$v" "Paycom Identity";;
+        7) read -rp "Tel: " v; consultar "compras_paycom.php" "telephone" "$v" "Paycom Telephone";;
+        8) read -rp "Tel: " v; consultar "compras_paycom2.php" "telefone" "$v" "Paycom2 Telefone";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_veiculos() {
+    cab "VEICULOS"
+    echo " 1)  Credauto Placa    7)  Credauto Terceiro Eixo"
+    echo " 2)  Credauto Chassi   8)  Credauto ID Importacao"
+    echo " 3)  Credauto Renavam  9)  Emplacamento Chassi"
+    echo " 4)  Credauto Motor    10) Emplacamento Placa"
+    echo " 5)  Credauto Cambio   11) Detran Placa"
+    echo " 6)  Credauto Eixo Tras"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1)  read -rp "Placa: " v; consultar_dual "credauto_bin.php" "campo" "PLACA" "valor" "$v" "Credauto Placa";;
+        2)  read -rp "Chassi: " v; consultar_dual "credauto_bin.php" "campo" "CHASSI" "valor" "$v" "Credauto Chassi";;
+        3)  read -rp "Renavam: " v; consultar_dual "credauto_bin.php" "campo" "RENAVAM" "valor" "$v" "Credauto Renavam";;
+        4)  read -rp "Motor: " v; consultar_dual "credauto_bin.php" "campo" "NUM_MOTOR" "valor" "$v" "Credauto Motor";;
+        5)  read -rp "Cambio: " v; consultar_dual "credauto_bin.php" "campo" "NUM_CAIXA_CAMBIO" "valor" "$v" "Credauto Cambio";;
+        6)  read -rp "Eixo Tras: " v; consultar_dual "credauto_bin.php" "campo" "NUM_EIXO_TRAS" "valor" "$v" "Credauto Eixo Tras";;
+        7)  read -rp "Terceiro Eixo: " v; consultar_dual "credauto_bin.php" "campo" "NUM_TERC_EIXO" "valor" "$v" "Credauto Terceiro Eixo";;
+        8)  read -rp "ID Importacao: " v; consultar_dual "credauto_bin.php" "campo" "NUM_IDENT_IMP" "valor" "$v" "Credauto ID Importacao";;
+        9)  read -rp "Chassi: " v; consultar_dual "credauto_emplacamento.php" "campo" "CHASSI" "valor" "$v" "Emplacamento Chassi";;
+        10) read -rp "Placa: " v; consultar_dual "credauto_emplacamento.php" "campo" "PLACA" "valor" "$v" "Emplacamento Placa";;
+        11) read -rp "Placa: " v; consultar "consulta_bv_detran.php" "placa" "$v" "Detran Placa";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_cadastros() {
+    cab "CADASTROS"
+    echo " 1) Claro CPF    6) Cadsus Celular"
+    echo " 2) Claro Nome   7) Cadsus Email"
+    echo " 3) Claro Tel    8) Nextel CPF"
+    echo " 4) Cadsus CPF   9) Nextel Tel"
+    echo " 5) Cadsus Nome"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "CLARO_CPF" "cpf" "$(only_numbers "$v")" "Claro CPF";;
+        2) read -rp "Nome: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "CLARO_CPF" "nome" "$(normalizar_nome "$v")" "Claro Nome";;
+        3) read -rp "Tel: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "CLARO_CPF" "telefone" "$v" "Claro Telefone";;
+        4) read -rp "CPF: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "cadsus" "cpf" "$(only_numbers "$v")" "Cadsus CPF";;
+        5) read -rp "Nome: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "cadsus" "nome" "$(normalizar_nome "$v")" "Cadsus Nome";;
+        6) read -rp "Celular: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "cadsus" "celular" "$v" "Cadsus Celular";;
+        7) read -rp "Email: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "cadsus" "email" "$v" "Cadsus Email";;
+        8) read -rp "CPF: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "nextel" "cpf" "$(only_numbers "$v")" "Nextel CPF";;
+        9) read -rp "Tel: " v; consultar_dual "api_cad_claro_nex.php" "tabela" "nextel" "telefone" "$v" "Nextel Telefone";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_dados_basicos() {
+    cab "DADOS BASICOS"
+    echo " 1) Basic 220M CPF    4) Brazilian People"
+    echo " 2) BR21M Documento   5) RAIS 2019"
+    echo " 3) BR21M Telefone    6) Situacao Cadastral"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar "basic220m.php" "cpf" "$(only_numbers "$v")" "Basic 220M";;
+        2) read -rp "Doc: " v; consultar "br21m.php" "doc" "$v" "BR21M Documento";;
+        3) read -rp "Tel: " v; consultar "br21m.php" "telefone" "$v" "BR21M Telefone";;
+        4) read -rp "CPF: " v; consultar "brazilianpeople.php" "cpf" "$(only_numbers "$v")" "Brazilian People";;
+        5) read -rp "CPF: " v; consultar "rais2019.php" "cpf" "$(only_numbers "$v")" "RAIS 2019";;
+        6) read -rp "CPF: " v; consultar "situacao.php" "cpf" "$(only_numbers "$v")" "Situacao Cadastral";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_telefones() {
+    cab "TELEFONES"
+    echo " 1) Tel0 CPF    5) Tel1 CPF"
+    echo " 2) Tel0 CEP    6) Tel1 CEP"
+    echo " 3) Tel0 Tel    7) Tel1 Nome"
+    echo " 4) Tel1 Tel"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar "telefone0.php" "cpf" "$(only_numbers "$v")" "Telefone0 CPF";;
+        2) read -rp "CEP: " v; consultar "telefone0.php" "cep" "$(only_numbers "$v")" "Telefone0 CEP";;
+        3) read -rp "Tel: " v; consultar "telefone0.php" "telefone" "$v" "Telefone0";;
+        4) read -rp "Tel: " v; consultar "telefone1.php" "telefone" "$v" "Telefone1";;
+        5) read -rp "CPF: " v; consultar "telefone1.php" "cpf" "$(only_numbers "$v")" "Telefone1 CPF";;
+        6) read -rp "CEP: " v; consultar "telefone1.php" "cep" "$(only_numbers "$v")" "Telefone1 CEP";;
+        7) read -rp "Nome: " v; consultar "telefone1.php" "nome" "$v" "Telefone1 Nome";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+menu_apifull() {
+    cab "API FULL"
+    echo " 1) CPF    4) Email"
+    echo " 2) Tel    5) CEP"
+    echo " 3) Placa"
+    echo " 0) Voltar"
+    read -rp "Escolha: " o
+    case $o in
+        1) read -rp "CPF: " v; consultar "api_full.php" "cpf" "$(only_numbers "$v")" "API Full CPF";;
+        2) read -rp "Tel: " v; consultar "api_full.php" "telefone" "$v" "API Full Telefone";;
+        3) read -rp "Placa: " v; consultar "api_full.php" "placa" "$v" "API Full Placa";;
+        4) read -rp "Email: " v; consultar "api_full.php" "email" "$v" "API Full Email";;
+        5) read -rp "CEP: " v; consultar "api_full.php" "cep" "$(only_numbers "$v")" "API Full CEP";;
+        0) return;;
+    esac
+    read -rp "Pressione ENTER..."
+}
+
+# ================================================================
+# MENU PRINCIPAL
+# ================================================================
+main_menu() {
+    while true; do
+        clear
+        printf "${RED}com grandes penis vem grandes responsabilidades${NC}\n"
+        printf "${RED}██████╗  █████╗ ██╗███╗   ██╗███████╗██╗     ${NC}\n"
+        printf "${RED}██╔══██╗██╔══██╗██║████╗  ██║██╔════╝██║     ${NC}\n"
+        printf "${RED}██████╔╝███████║██║██╔██╗ ██║█████╗  ██║     ${NC}\n"
+        printf "${RED}██╔═══╝ ██╔══██║██║██║╚██╗██║██╔══╝  ██║     ${NC}\n"
+        printf "${RED}██║     ██║  ██║██║██║ ╚████║███████╗███████╗${NC}\n"
+        printf "${RED}╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝${NC}\n"
+        printf "${RED}by @neuroseempessoa (discord) - TERMUX${NC}\n"
+        printf "${RED}          de preferencia utilize wifi              ${NC}\n"
+        printf "\n"
+        echo " 1)  Serasa"
+        echo " 2)  SPC 1"
+        echo " 3)  SPC 2"
+        echo " 4)  Telefones"
+        echo " 5)  Dados 01"
+        echo " 6)  Credito"
+        echo " 7)  Veiculos"
+        echo " 8)  Cadastros"
+        echo " 9)  Dados Basicos"
+        echo " 10) API Full"
+        echo " 11) Consulta CPF"
+        echo " 12) Consulta CNPJ"
+        echo " 13) Receita Federal (CPF manual)"
+        echo " 14) CONSULTA MULTIPLA (todas as APIs)"
+        echo " 0)  Sair"
+        echo ""
+        read -rp "Escolha: " opt
+        case $opt in
+            1) menu_serasa ;;
+            2) menu_spc1 ;;
+            3) menu_spc2 ;;
+            4) menu_telefones ;;
+            5) menu_dados ;;
+            6) menu_credito ;;
+            7) menu_veiculos ;;
+            8) menu_cadastros ;;
+            9) menu_dados_basicos ;;
+            10) menu_apifull ;;
+            11) menu_cpfhub ;;
+            12) menu_brasilapi ;;
+            13) menu_receita_cpf ;;
+            14) menu_multipla ;;
+            0) echo "Saindo..."; exit 0 ;;
+            *) echo "Opcao invalida."; sleep 1 ;;
+        esac
+    done
+}
+
+# ===== INICIO =====
+check_deps
+main_menu
