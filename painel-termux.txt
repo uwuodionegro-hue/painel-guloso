@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ================================================================
-# Painel V3 by @neuroseempessoa - TERMUX EDITION
+# Painel V3 by @neuroseempessoars_
 # ================================================================
 
 set -o pipefail
@@ -83,7 +83,7 @@ exibir_organizado() {
     local json="$1" desc="$2"
 
     printf "\n"
-    cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.003
+    cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.003
     printf "\n"
     cascata_linha "${WHITE}----------------------------------------${NC}" 0.001
     printf "\n"
@@ -177,7 +177,7 @@ consultar() {
     if printf '%s' "$clean" | jq . >/dev/null 2>&1; then
         exibir_organizado "$clean" "$desc"
     else
-        printf "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}\n"
+        printf "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}\n"
         printf "${WHITE}----------------------------------------${NC}\n"
         printf "${WHITE}%s${NC}\n" "$desc"
         printf "${WHITE}----------------------------------------${NC}\n"
@@ -198,7 +198,7 @@ consultar_dual() {
     if printf '%s' "$clean" | jq . >/dev/null 2>&1; then
         exibir_organizado "$clean" "$desc"
     else
-        printf "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}\n"
+        printf "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}\n"
         printf "${WHITE}----------------------------------------${NC}\n"
         printf "${WHITE}%s${NC}\n" "$desc"
         printf "${WHITE}----------------------------------------${NC}\n"
@@ -325,7 +325,7 @@ consulta_multipla_cpf() {
         local c; c=$(limpar_resposta "$(cat "$caminho")")
         printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
         printf "\n"
-        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.002
         printf "\n"
         cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
         printf "\n"
@@ -341,7 +341,7 @@ consulta_multipla_cpf() {
     printf "\n${WHITE}=========================================${NC}\n"
     cascata_linha "${WHITE}Consulta multipla finalizada${NC}" 0.003
     printf "\n"
-    cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.003
+    cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.003
     printf "\n"
 
     local relatorio="$HOME/consulta_multipla_${cpf}_$(date +%Y%m%d_%H%M%S).txt"
@@ -399,7 +399,7 @@ consulta_multipla_nome() {
         local c; c=$(limpar_resposta "$(cat "$caminho")")
         printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
         printf "\n"
-        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.002
         printf "\n"
         cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
         printf "\n"
@@ -451,7 +451,7 @@ consulta_multipla_telefone() {
         local c; c=$(limpar_resposta "$(cat "$caminho")")
         printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
         printf "\n"
-        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.002
         printf "\n"
         cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
         printf "\n"
@@ -504,7 +504,7 @@ consulta_multipla_email() {
         local c; c=$(limpar_resposta "$(cat "$caminho")")
         printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
         printf "\n"
-        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.002
         printf "\n"
         cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
         printf "\n"
@@ -555,7 +555,7 @@ consulta_multipla_placa() {
         local c; c=$(limpar_resposta "$(cat "$caminho")")
         printf '%s' "$c" | jq -e '.' >/dev/null 2>&1 || continue
         printf "\n"
-        cascata_linha "${WHITE}painel feito pelo @neuroseempessoa rs 🫦${NC}" 0.002
+        cascata_linha "${WHITE}painel feito pelo @neuroseempessoars_ 🫦${NC}" 0.002
         printf "\n"
         cascata_linha "${WHITE}----------------------------------------${NC}" 0.0005
         printf "\n"
@@ -815,7 +815,7 @@ main_menu() {
         printf "${WHITE}██╔═══╝ ██╔══██║██║██║╚██╗██║██╔══╝  ██║     ${NC}\n"
         printf "${WHITE}██║     ██║  ██║██║██║ ╚████║███████╗███████╗${NC}\n"
         printf "${WHITE}╚═╝     ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝${NC}\n"
-        printf "${WHITE}by @neuroseempessoars (discord) - TERMUX${NC}\n"
+        printf "${WHITE}by @neuroseempessoars_ (discord) - TERMUX${NC}\n"
         printf "${WHITE}          de preferencia utilize wifi              ${NC}\n"
         printf "\n"
         echo " 1)  Serasa"
